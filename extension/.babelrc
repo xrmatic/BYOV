@@ -1,0 +1,28 @@
+{
+  "env": {
+    "test": {
+      "presets": [
+        ["@babel/preset-env", {
+          "targets": { "node": "current" },
+          "modules": "commonjs"
+        }]
+      ]
+    },
+    "production": {
+      "presets": [
+        ["@babel/preset-env", {
+          "targets": { "chrome": "100", "edge": "100" },
+          "modules": false
+        }]
+      ]
+    },
+    "development": {
+      "presets": [
+        ["@babel/preset-env", {
+          "targets": { "chrome": "100", "edge": "100" },
+          "modules": false
+        }]
+      ]
+    }
+  }
+}
