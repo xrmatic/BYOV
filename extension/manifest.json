@@ -1,0 +1,61 @@
+{
+  "manifest_version": 3,
+  "name": "BYOV – Bring Your Own Vault",
+  "short_name": "BYOV",
+  "version": "1.0.0",
+  "description": "Zero-knowledge password vault. Your vault, your keys. Supports local, cloud, and removable storage.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "identity",
+    "alarms",
+    "contextMenus",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "BYOV Vault"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://localhost/*"],
+      "js": ["content/content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["crypto/argon2.wasm", "icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

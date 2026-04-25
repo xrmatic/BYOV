@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BYOV Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar">
+      <div class="logo">
+        <span>🔐</span>
+        <h2>BYOV</h2>
+      </div>
+      <nav>
+        <button class="nav-btn active" data-section="general">⚙ General</button>
+        <button class="nav-btn" data-section="storage">☁ Storage</button>
+        <button class="nav-btn" data-section="security">🛡 Security</button>
+        <button class="nav-btn" data-section="import-export">📦 Import / Export</button>
+        <button class="nav-btn" data-section="about">ℹ About</button>
+      </nav>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- ── General ─────────────────────────────────────────── -->
+      <section id="section-general" class="section active">
+        <h1>General Settings</h1>
+
+        <div class="settings-group">
+          <h3>Auto-lock</h3>
+          <div class="field">
+            <label for="auto-lock-minutes">Lock vault after (minutes of inactivity)</label>
+            <select id="auto-lock-minutes">
+              <option value="1">1 minute</option>
+              <option value="5">5 minutes</option>
+              <option value="15" selected>15 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="60">1 hour</option>
+              <option value="0">Never</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Autofill</h3>
+          <div class="field checkbox-field">
+            <input type="checkbox" id="autofill-enabled" checked />
+            <label for="autofill-enabled">Enable autofill on login pages</label>
+          </div>
+          <div class="field checkbox-field">
+            <input type="checkbox" id="autofill-icon" checked />
+            <label for="autofill-icon">Show 🔐 icon in password fields</label>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Clipboard</h3>
+          <div class="field">
+            <label for="clipboard-clear">Clear clipboard after (seconds)</label>
+            <select id="clipboard-clear">
+              <option value="0">Never</option>
+              <option value="15">15 seconds</option>
+              <option value="30" selected>30 seconds</option>
+              <option value="60">1 minute</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="btn-save-general">Save General Settings</button>
+        <div id="general-status" class="status-msg hidden"></div>
+      </section>
+
+      <!-- ── Storage ─────────────────────────────────────────── -->
+      <section id="section-storage" class="section">
+        <h1>Storage Provider</h1>
+        <p class="description">Choose where your encrypted vault is stored. All vault data is encrypted before leaving your device. The server never sees your master password or plaintext data.</p>
+
+        <div class="field">
+          <label for="storage-type">Active Storage Provider</label>
+          <select id="storage-type">
+            <option value="local">🖥 Local Device (browser storage)</option>
+            <option value="firebase">🔥 Firebase Firestore</option>
+            <option value="supabase">⚡ Supabase (Sync API)</option>
+            <option value="onedrive">☁ Microsoft OneDrive</option>
+            <option value="googledrive">🗂 Google Drive</option>
+            <option value="dropbox">📦 Dropbox</option>
+          </select>
+        </div>
+
+        <!-- Local -->
+        <div id="config-local" class="provider-config">
+          <p class="hint">Vault is stored in your browser's local storage. Works offline. Not synced between devices.</p>
+        </div>
+
+        <!-- Firebase -->
+        <div id="config-firebase" class="provider-config hidden">
+          <h3>Firebase Configuration</h3>
+          <div class="field"><label>API Key</label><input type="text" id="fb-api-key" placeholder="AIzaSy…" /></div>
+          <div class="field"><label>Auth Domain</label><input type="text" id="fb-auth-domain" placeholder="your-app.firebaseapp.com" /></div>
+          <div class="field"><label>Project ID</label><input type="text" id="fb-project-id" placeholder="your-project" /></div>
+          <div class="field"><label>Storage Bucket</label><input type="text" id="fb-storage-bucket" placeholder="your-app.appspot.com" /></div>
+          <div class="field"><label>Messaging Sender ID</label><input type="text" id="fb-messaging-sender-id" /></div>
+          <div class="field"><label>App ID</label><input type="text" id="fb-app-id" /></div>
+          <p class="hint">Get these values from your Firebase project console → Project settings → Your apps.</p>
+        </div>
+
+        <!-- Supabase -->
+        <div id="config-supabase" class="provider-config hidden">
+          <h3>Supabase Configuration</h3>
+          <div class="field"><label>Supabase URL</label><input type="url" id="sb-url" placeholder="https://your-project.supabase.co" /></div>
+          <div class="field"><label>Anon Key</label><input type="text" id="sb-anon-key" placeholder="eyJ…" /></div>
+          <div class="field"><label>Sync API URL (optional, if using self-hosted API)</label><input type="url" id="sb-api-url" placeholder="https://api.yourapp.com" /></div>
+          <p class="hint">Get these from your Supabase project settings → API.</p>
+        </div>
+
+        <!-- OneDrive -->
+        <div id="config-onedrive" class="provider-config hidden">
+          <h3>OneDrive / Microsoft 365</h3>
+          <div class="field"><label>App Client ID</label><input type="text" id="od-client-id" placeholder="00000000-0000-0000-0000-000000000000" /></div>
+          <div class="field"><label>Tenant ID (optional, 'common' for personal accounts)</label><input type="text" id="od-tenant-id" placeholder="common" /></div>
+          <button class="btn btn-secondary" id="btn-auth-onedrive">Authorise OneDrive →</button>
+          <div id="od-auth-status" class="status-msg hidden"></div>
+          <p class="hint">Register an app in the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps" target="_blank">Azure Portal</a> and add the redirect URI for this extension.</p>
+        </div>
+
+        <!-- Google Drive -->
+        <div id="config-googledrive" class="provider-config hidden">
+          <h3>Google Drive</h3>
+          <div class="field"><label>OAuth Client ID</label><input type="text" id="gd-client-id" placeholder="000000000000-….apps.googleusercontent.com" /></div>
+          <button class="btn btn-secondary" id="btn-auth-googledrive">Authorise Google Drive →</button>
+          <div id="gd-auth-status" class="status-msg hidden"></div>
+          <p class="hint">Create a project in the <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a>, enable the Drive API, and create OAuth2 credentials.</p>
+        </div>
+
+        <!-- Dropbox -->
+        <div id="config-dropbox" class="provider-config hidden">
+          <h3>Dropbox</h3>
+          <div class="field"><label>App Key (Client ID)</label><input type="text" id="dbx-client-id" placeholder="your_app_key" /></div>
+          <button class="btn btn-secondary" id="btn-auth-dropbox">Authorise Dropbox →</button>
+          <div id="dbx-auth-status" class="status-msg hidden"></div>
+          <p class="hint">Create an app on the <a href="https://www.dropbox.com/developers/apps" target="_blank">Dropbox App Console</a> with Files.Content.Read and Files.Content.Write permissions.</p>
+        </div>
+
+        <button class="btn btn-primary" id="btn-save-storage">Save Storage Settings</button>
+        <div id="storage-status" class="status-msg hidden"></div>
+      </section>
+
+      <!-- ── Security ─────────────────────────────────────────── -->
+      <section id="section-security" class="section">
+        <h1>Security</h1>
+
+        <div class="settings-group">
+          <h3>Change Master Password</h3>
+          <p class="description">Your current vault key is re-wrapped with the new password. All encrypted items remain unchanged. You must have the vault unlocked to change the master password.</p>
+          <div class="field">
+            <label for="change-current-password">Current Master Password</label>
+            <input type="password" id="change-current-password" autocomplete="current-password" placeholder="••••••••" />
+          </div>
+          <div class="field">
+            <label for="change-new-password">New Master Password</label>
+            <input type="password" id="change-new-password" autocomplete="new-password" placeholder="Choose a strong password" />
+          </div>
+          <div class="field">
+            <label for="change-confirm-password">Confirm New Password</label>
+            <input type="password" id="change-confirm-password" autocomplete="new-password" placeholder="Repeat new password" />
+          </div>
+          <button class="btn btn-primary" id="btn-change-password">Change Password</button>
+          <div id="change-pw-status" class="status-msg hidden"></div>
+        </div>
+
+        <div class="settings-group">
+          <h3>Argon2id Parameters</h3>
+          <p class="description">These control how much work is done to derive your encryption key. Higher values increase security but make unlocking slower. OWASP recommended values are shown.</p>
+          <div class="field row">
+            <div>
+              <label for="argon-memory">Memory (KiB)</label>
+              <input type="number" id="argon-memory" value="65536" min="8192" max="1048576" step="8192" />
+              <span class="hint">Min 64 MiB (65536)</span>
+            </div>
+            <div>
+              <label for="argon-iterations">Iterations</label>
+              <input type="number" id="argon-iterations" value="3" min="1" max="100" />
+            </div>
+            <div>
+              <label for="argon-parallelism">Parallelism</label>
+              <input type="number" id="argon-parallelism" value="4" min="1" max="16" />
+            </div>
+          </div>
+          <p class="hint warning">⚠ Changing Argon2id parameters requires re-creating the vault (changing the master password regenerates the key derivation).</p>
+        </div>
+      </section>
+
+      <!-- ── Import / Export ──────────────────────────────────── -->
+      <section id="section-import-export" class="section">
+        <h1>Import / Export</h1>
+
+        <div class="settings-group">
+          <h3>Export Encrypted Vault</h3>
+          <p class="description">Download your encrypted vault as a <code>.byov</code> file. The file is completely encrypted with your master password using XChaCha20-Poly1305. Anyone who has this file still needs your master password to decrypt it.</p>
+          <button class="btn btn-primary" id="btn-export-vault">Export Vault (.byov)</button>
+        </div>
+
+        <hr />
+
+        <div class="settings-group">
+          <h3>Import Vault from File</h3>
+          <p class="description">Import a previously exported <code>.byov</code> vault file. You will need the original master password that was used when the vault was created or exported.</p>
+          <div class="field">
+            <label for="import-vault-file">Vault File (.byov)</label>
+            <input type="file" id="import-vault-file" accept=".byov,.json" />
+          </div>
+          <div class="field">
+            <label for="import-vault-password">Master Password for Imported Vault</label>
+            <input type="password" id="import-vault-password" placeholder="••••••••" />
+          </div>
+          <button class="btn btn-primary" id="btn-import-vault">Import Vault</button>
+          <div id="import-export-status" class="status-msg hidden"></div>
+        </div>
+
+        <hr />
+
+        <div class="settings-group">
+          <h3>Device Management</h3>
+          <p class="description">Your device ID is used to track which device last modified each vault item. This enables multi-device sync with last-write-wins conflict resolution.</p>
+          <div class="field">
+            <label>This Device ID</label>
+            <div class="device-id-display" id="device-id-display">Loading…</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── About ─────────────────────────────────────────────── -->
+      <section id="section-about" class="section">
+        <h1>About BYOV</h1>
+        <div class="about-content">
+          <div class="logo-big">🔐</div>
+          <h2>BYOV – Bring Your Own Vault</h2>
+          <p class="version">Version 1.0.0</p>
+
+          <div class="about-features">
+            <h3>Security Design</h3>
+            <ul>
+              <li><strong>Zero-knowledge encryption</strong> – your master password never leaves your device</li>
+              <li><strong>Argon2id</strong> key derivation (64 MiB, 3 iterations, parallelism 4)</li>
+              <li><strong>XChaCha20-Poly1305</strong> authenticated encryption for vault items</li>
+              <li><strong>AES-256-GCM</strong> (WebCrypto) for vault key wrapping</li>
+              <li><strong>Two-level key scheme</strong> – password change only re-wraps the vault key</li>
+              <li><strong>Random nonces</strong> per item, per write</li>
+              <li>Server stores only <em>encrypted blobs</em> – cannot decrypt your data</li>
+            </ul>
+
+            <h3>Storage Providers</h3>
+            <ul>
+              <li>🖥 Local Device (offline)</li>
+              <li>🔥 Firebase Firestore</li>
+              <li>⚡ Supabase / custom REST API</li>
+              <li>☁ Microsoft OneDrive</li>
+              <li>🗂 Google Drive (appDataFolder)</li>
+              <li>📦 Dropbox</li>
+            </ul>
+
+            <h3>Sync</h3>
+            <ul>
+              <li>Per-item version sync with last-write-wins</li>
+              <li>Item history / soft-delete tombstones</li>
+              <li>Background sync every 5 minutes</li>
+            </ul>
+          </div>
+
+          <p class="disclaimer">BYOV is open source software provided without warranty. Always maintain a backup of your vault file.</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
