@@ -21,6 +21,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.hidden { display: none !important; }
 
 body {
   background: var(--crust);
@@ -33,6 +34,79 @@ body {
 .container {
   display: flex;
   min-height: 100vh;
+}
+
+.locked-state {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+}
+
+.locked-card {
+  width: min(420px, 100%);
+  background: linear-gradient(180deg, rgba(24,24,37,0.96), rgba(30,30,46,0.98));
+  border: 1px solid rgba(137,180,250,0.18);
+  border-radius: 18px;
+  padding: 32px 28px;
+  text-align: center;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.35);
+}
+
+.locked-icon {
+  font-size: 52px;
+  margin-bottom: 12px;
+}
+
+.locked-card h1 {
+  color: var(--mauve);
+  font-size: 28px;
+  margin-bottom: 12px;
+}
+
+.locked-card p {
+  color: var(--subtext0);
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+
+.locked-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.countdown-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 17, 27, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 24px;
+}
+
+.countdown-card {
+  width: min(360px, 100%);
+  background: linear-gradient(180deg, rgba(24,24,37,0.98), rgba(30,30,46,0.98));
+  border: 1px solid rgba(137, 180, 250, 0.22);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: 0 24px 48px rgba(0,0,0,0.35);
+  text-align: center;
+}
+
+.countdown-card h2 {
+  color: var(--mauve);
+  margin-bottom: 12px;
+}
+
+.countdown-card p {
+  color: var(--subtext0);
+  line-height: 1.7;
 }
 
 /* ── Sidebar ──────────────────────────────────────────────── */
@@ -232,6 +306,56 @@ select { appearance: none; cursor: pointer; }
 
 .provider-config { margin-top: 16px; }
 .provider-config h3 { font-size: 14px; color: var(--blue); margin-bottom: 12px; }
+
+.provider-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.provider-subpanel {
+  margin-top: 18px;
+}
+
+.local-vault-panel {
+  margin-top: 16px;
+}
+
+.local-vault-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vault-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.vault-summary-card {
+  background: rgba(49, 50, 68, 0.78);
+  border: 1px solid rgba(186, 194, 222, 0.1);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.vault-summary-card strong {
+  display: block;
+  color: var(--subtext1);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px;
+}
+
+.vault-summary-card span {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
 
 /* ── Device ID ────────────────────────────────────────────── */
 

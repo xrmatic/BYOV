@@ -48,13 +48,16 @@ module.exports = (env, argv) => {
         template: path.join(srcDir, 'popup/popup.html'),
         filename: 'popup/popup.html',
         chunks: ['popup/popup'],
-        inject: true,
+        // Templates already contain <script src="popup.js"> / "options.js".
+        // Auto-injecting would result in two script tags → handlers registered
+        // twice → every ADD_ITEM / form submit fires twice → duplicate items.
+        inject: false,
       }),
       new HtmlWebpackPlugin({
         template: path.join(srcDir, 'options/options.html'),
         filename: 'options/options.html',
         chunks: ['options/options'],
-        inject: true,
+        inject: false,
       }),
       new CopyWebpackPlugin({
         patterns: [

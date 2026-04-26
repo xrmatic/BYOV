@@ -4,9 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BYOV Settings</title>
-  <link rel="stylesheet" href="options.css" />
 </head>
 <body>
+  <div id="locked-state" class="locked-state hidden">
+    <div class="locked-card">
+      <div class="locked-icon">🔒</div>
+      <h1>Vault Locked</h1>
+      <p>Settings that decrypt or export vault data are unavailable until BYOV is unlocked.</p>
+      <div class="locked-actions">
+        <button class="btn btn-primary" id="btn-open-popup-tab">Open Unlock Page</button>
+        <button class="btn btn-secondary" id="btn-refresh-status">Refresh Status</button>
+      </div>
+      <div id="locked-status" class="status-msg hidden"></div>
+    </div>
+  </div>
+
   <div class="container">
     <aside class="sidebar">
       <div class="logo">
@@ -68,6 +80,15 @@
           </div>
         </div>
 
+        <div class="settings-group">
+          <h3>Background Session</h3>
+          <div class="field checkbox-field">
+            <input type="checkbox" id="allow-session-resume" />
+            <label for="allow-session-resume">Keep the vault unlockable across background worker restarts (less secure)</label>
+          </div>
+          <p class="hint warning">Recommended off. When enabled, BYOV stores temporary decrypted session material in extension session storage so the vault can survive MV3 worker eviction.</p>
+        </div>
+
         <button class="btn btn-primary" id="btn-save-general">Save General Settings</button>
         <div id="general-status" class="status-msg hidden"></div>
       </section>
@@ -92,6 +113,31 @@
         <!-- Local -->
         <div id="config-local" class="provider-config">
           <p class="hint">Vault is stored in your browser's local storage. Works offline. Not synced between devices.</p>
+          <div class="provider-actions">
+            <button class="btn btn-secondary" id="btn-test-local" type="button">Test Local Storage</button>
+          </div>
+          <div id="local-test-status" class="status-msg hidden"></div>
+          <div class="settings-group local-vault-panel">
+            <h3>Current Local Vault</h3>
+            <div id="local-vault-summary" class="local-vault-summary">
+              <p class="hint">No local vault detected for this browser profile yet.</p>
+            </div>
+          </div>
+
+          <div class="settings-group local-vault-panel">
+            <h3>Create Local Vault</h3>
+            <p class="description">Create a new offline-only vault directly from Settings. This uses the same local browser storage as the popup flow.</p>
+            <div class="field">
+              <label for="local-create-password">Master Password</label>
+              <input type="password" id="local-create-password" autocomplete="new-password" placeholder="Choose a strong master password" />
+            </div>
+            <div class="field">
+              <label for="local-create-confirm">Confirm Password</label>
+              <input type="password" id="local-create-confirm" autocomplete="new-password" placeholder="Repeat master password" />
+            </div>
+            <button class="btn btn-primary" id="btn-create-local-vault">Create Local Vault</button>
+            <div id="local-vault-status" class="status-msg hidden"></div>
+          </div>
         </div>
 
         <!-- Firebase -->
@@ -104,6 +150,19 @@
           <div class="field"><label>Messaging Sender ID</label><input type="text" id="fb-messaging-sender-id" /></div>
           <div class="field"><label>App ID</label><input type="text" id="fb-app-id" /></div>
           <p class="hint">Get these values from your Firebase project console → Project settings → Your apps.</p>
+          <div class="settings-group provider-subpanel">
+            <h3>Firebase Account</h3>
+            <p class="description">BYOV uses Firebase Authentication for identity and Firestore for encrypted vault data.</p>
+            <div class="field"><label>Email</label><input type="email" id="fb-email" autocomplete="username" placeholder="you@example.com" /></div>
+            <div class="field"><label>Password</label><input type="password" id="fb-password" autocomplete="current-password" placeholder="Firebase account password" /></div>
+            <div class="provider-actions">
+              <button class="btn btn-secondary" id="btn-test-firebase" type="button">Test Connection</button>
+              <button class="btn btn-secondary" id="btn-sign-in-firebase" type="button">Sign In</button>
+              <button class="btn" id="btn-sign-up-firebase" type="button">Create Account</button>
+              <button class="btn" id="btn-open-firebase-docs" type="button">Setup Guide</button>
+            </div>
+            <div id="firebase-status" class="status-msg hidden"></div>
+          </div>
         </div>
 
         <!-- Supabase -->
@@ -111,8 +170,20 @@
           <h3>Supabase Configuration</h3>
           <div class="field"><label>Supabase URL</label><input type="url" id="sb-url" placeholder="https://your-project.supabase.co" /></div>
           <div class="field"><label>Anon Key</label><input type="text" id="sb-anon-key" placeholder="eyJ…" /></div>
-          <div class="field"><label>Sync API URL (optional, if using self-hosted API)</label><input type="url" id="sb-api-url" placeholder="https://api.yourapp.com" /></div>
-          <p class="hint">Get these from your Supabase project settings → API.</p>
+          <p class="hint">Get these from your Supabase project settings → API. The extension talks to PostgREST directly; no separate sync server required.</p>
+          <div class="settings-group provider-subpanel">
+            <h3>Supabase Account</h3>
+            <p class="description">Supabase storage needs two credentials: your Supabase account signs you into the project, and your BYOV master password decrypts the vault.</p>
+            <div class="field"><label>Email</label><input type="email" id="sb-email" autocomplete="username" placeholder="you@example.com" /></div>
+            <div class="field"><label>Password</label><input type="password" id="sb-password" autocomplete="current-password" placeholder="Supabase account password" /></div>
+            <div class="provider-actions">
+              <button class="btn btn-secondary" id="btn-test-supabase" type="button">Test Connection</button>
+              <button class="btn btn-secondary" id="btn-sign-in-supabase" type="button">Sign In</button>
+              <button class="btn" id="btn-sign-up-supabase" type="button">Create Account</button>
+              <button class="btn" id="btn-open-supabase-docs" type="button">Setup Guide</button>
+            </div>
+            <div id="supabase-status" class="status-msg hidden"></div>
+          </div>
         </div>
 
         <!-- OneDrive -->
@@ -120,27 +191,42 @@
           <h3>OneDrive / Microsoft 365</h3>
           <div class="field"><label>App Client ID</label><input type="text" id="od-client-id" placeholder="00000000-0000-0000-0000-000000000000" /></div>
           <div class="field"><label>Tenant ID (optional, 'common' for personal accounts)</label><input type="text" id="od-tenant-id" placeholder="common" /></div>
-          <button class="btn btn-secondary" id="btn-auth-onedrive">Authorise OneDrive →</button>
+          <div class="field"><label>Redirect URI</label><input type="url" id="od-redirect-uri" placeholder="https://login.microsoftonline.com/common/oauth2/nativeclient" /></div>
+          <div class="provider-actions">
+            <button class="btn btn-secondary" id="btn-test-onedrive" type="button">Test Configuration</button>
+            <button class="btn btn-secondary" id="btn-auth-onedrive" type="button">Authorise OneDrive</button>
+            <button class="btn" id="btn-open-onedrive-docs" type="button">Setup Guide</button>
+          </div>
           <div id="od-auth-status" class="status-msg hidden"></div>
-          <p class="hint">Register an app in the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps" target="_blank">Azure Portal</a> and add the redirect URI for this extension.</p>
+          <p class="hint">Register an app in the <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps" target="_blank">Azure Portal</a> and add the redirect URI for this extension. OAuth login from BYOV is not fully wired yet, so this panel focuses on setup validation.</p>
         </div>
 
         <!-- Google Drive -->
         <div id="config-googledrive" class="provider-config hidden">
           <h3>Google Drive</h3>
           <div class="field"><label>OAuth Client ID</label><input type="text" id="gd-client-id" placeholder="000000000000-….apps.googleusercontent.com" /></div>
-          <button class="btn btn-secondary" id="btn-auth-googledrive">Authorise Google Drive →</button>
+          <div class="field"><label>Redirect URI</label><input type="url" id="gd-redirect-uri" placeholder="https://your-extension/oauth/callback" /></div>
+          <div class="provider-actions">
+            <button class="btn btn-secondary" id="btn-test-googledrive" type="button">Test Configuration</button>
+            <button class="btn btn-secondary" id="btn-auth-googledrive" type="button">Authorise Google Drive</button>
+            <button class="btn" id="btn-open-googledrive-docs" type="button">Setup Guide</button>
+          </div>
           <div id="gd-auth-status" class="status-msg hidden"></div>
-          <p class="hint">Create a project in the <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a>, enable the Drive API, and create OAuth2 credentials.</p>
+          <p class="hint">Create a project in the <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a>, enable the Drive API, and create OAuth2 credentials. Store the redirect URI from your OAuth app here so BYOV can validate the setup.</p>
         </div>
 
         <!-- Dropbox -->
         <div id="config-dropbox" class="provider-config hidden">
           <h3>Dropbox</h3>
           <div class="field"><label>App Key (Client ID)</label><input type="text" id="dbx-client-id" placeholder="your_app_key" /></div>
-          <button class="btn btn-secondary" id="btn-auth-dropbox">Authorise Dropbox →</button>
+          <div class="field"><label>Redirect URI</label><input type="url" id="dbx-redirect-uri" placeholder="https://your-extension/oauth/callback" /></div>
+          <div class="provider-actions">
+            <button class="btn btn-secondary" id="btn-test-dropbox" type="button">Test Configuration</button>
+            <button class="btn btn-secondary" id="btn-auth-dropbox" type="button">Authorise Dropbox</button>
+            <button class="btn" id="btn-open-dropbox-docs" type="button">Setup Guide</button>
+          </div>
           <div id="dbx-auth-status" class="status-msg hidden"></div>
-          <p class="hint">Create an app on the <a href="https://www.dropbox.com/developers/apps" target="_blank">Dropbox App Console</a> with Files.Content.Read and Files.Content.Write permissions.</p>
+          <p class="hint">Create an app on the <a href="https://www.dropbox.com/developers/apps" target="_blank">Dropbox App Console</a> with Files.Content.Read and Files.Content.Write permissions. Add the redirect URI from your Dropbox app here before testing.</p>
         </div>
 
         <button class="btn btn-primary" id="btn-save-storage">Save Storage Settings</button>
@@ -200,6 +286,7 @@
           <h3>Export Encrypted Vault</h3>
           <p class="description">Download your encrypted vault as a <code>.byov</code> file. The file is completely encrypted with your master password using XChaCha20-Poly1305. Anyone who has this file still needs your master password to decrypt it.</p>
           <button class="btn btn-primary" id="btn-export-vault">Export Vault (.byov)</button>
+          <div id="export-status" class="status-msg hidden"></div>
         </div>
 
         <hr />
@@ -248,17 +335,27 @@
               <li><strong>AES-256-GCM</strong> (WebCrypto) for vault key wrapping</li>
               <li><strong>Two-level key scheme</strong> – password change only re-wraps the vault key</li>
               <li><strong>Random nonces</strong> per item, per write</li>
+              <li><strong>Trusted autofill path</strong> – content scripts are registered dynamically and autofill requests are scoped to trusted sender context</li>
               <li>Server stores only <em>encrypted blobs</em> – cannot decrypt your data</li>
             </ul>
 
             <h3>Storage Providers</h3>
             <ul>
-              <li>🖥 Local Device (offline)</li>
+              <li>🖥 Local Device (default, always available, offline)</li>
               <li>🔥 Firebase Firestore</li>
-              <li>⚡ Supabase / custom REST API</li>
+              <li>⚡ Supabase via PostgREST + RLS</li>
               <li>☁ Microsoft OneDrive</li>
               <li>🗂 Google Drive (appDataFolder)</li>
               <li>📦 Dropbox</li>
+            </ul>
+
+            <h3>Vault UX</h3>
+            <ul>
+              <li>Filter and sort dropdowns in the popup vault list</li>
+              <li>Helpful previews for logins, notes, cards, and identities</li>
+              <li>Hover metadata for created date, last modified time, and item version</li>
+              <li>Adding from a filtered view opens the matching item form</li>
+              <li>Settings shows a locked-state screen when the vault is unavailable</li>
             </ul>
 
             <h3>Sync</h3>
@@ -266,6 +363,7 @@
               <li>Per-item version sync with last-write-wins</li>
               <li>Item history / soft-delete tombstones</li>
               <li>Background sync every 5 minutes</li>
+              <li>Clipboard clear runs from the background so it survives popup close</li>
             </ul>
           </div>
 
@@ -274,6 +372,13 @@
       </section>
 
     </main>
+  </div>
+
+  <div id="refresh-countdown-modal" class="countdown-modal hidden" aria-live="polite">
+    <div class="countdown-card">
+      <h2>Vault Imported</h2>
+      <p id="refresh-countdown-text">Refreshing this page in 5 seconds…</p>
+    </div>
   </div>
 
   <script src="options.js"></script>

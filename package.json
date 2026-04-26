@@ -1,20 +1,14 @@
 {
   "name": "byov",
   "version": "1.0.0",
-  "description": "Bring Your Own Vault – secure zero-knowledge password manager browser extension",
+  "description": "Bring Your Own Vault – zero-knowledge password manager browser extension",
   "private": true,
-  "workspaces": [
-    "extension",
-    "api"
-  ],
+  "workspaces": ["extension"],
   "scripts": {
     "build": "npm run build --workspace=extension",
-    "build:api": "npm run build --workspace=api",
-    "dev": "npm run dev --workspace=extension",
-    "test": "npm run test --workspace=extension && npm run test --workspace=api",
-    "test:extension": "npm run test --workspace=extension",
-    "test:api": "npm run test --workspace=api",
-    "lint": "eslint 'extension/src/**/*.js' 'api/**/*.js' --fix"
+    "dev":   "npm run dev   --workspace=extension",
+    "test":  "npm run test  --workspace=extension",
+    "lint":  "eslint 'extension/src/**/*.js' --fix"
   },
   "devDependencies": {
     "eslint": "^8.57.0"

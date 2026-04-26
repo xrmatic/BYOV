@@ -13,24 +13,51 @@
   window.__byovInjected = true;
 
   const hostname = window.location.hostname;
+  let autofillEnabled = true;
+  let showAutofillIcon = true;
+
+  loadSettings().then(() => {
+    if (autofillEnabled && showAutofillIcon) {
+      injectAutofillIcons();
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !changes.byov_general_settings) return;
+    const settings = changes.byov_general_settings.newValue || {};
+    autofillEnabled = settings.autofillEnabled !== false;
+    showAutofillIcon = settings.autofillIcon !== false;
+
+    if (!autofillEnabled || !showAutofillIcon) {
+      removeInjectedIcons();
+      removePicker();
+      return;
+    }
+
+    injectAutofillIcons();
+  });
 
   // ─── Message listener (from background service worker) ─────────────────────
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'TRIGGER_AUTOFILL') {
       triggerAutofill();
     }
+    if (message.type === 'CLEAR_CLIPBOARD') {
+      // Best-effort: only succeeds if the page currently has focus.
+      navigator.clipboard.writeText('').catch(() => {});
+    }
   });
 
   // ─── Autofill trigger ────────────────────────────────────────────────────────
 
   async function triggerAutofill() {
+    if (!autofillEnabled) return;
     const passwordFields = document.querySelectorAll('input[type="password"]');
     if (passwordFields.length === 0) return;
 
     // Ask background for matching credentials
     const response = await chrome.runtime.sendMessage({
       type: 'AUTOFILL_QUERY',
-      payload: { hostname },
     });
 
     if (!response?.items?.length) {
@@ -39,19 +66,19 @@
     }
 
     if (response.items.length === 1) {
-      await fillCredentials(response.items[0], passwordFields[0]);
+      await fillCredentials(response.items[0], passwordFields[0], response.autofillToken);
     } else {
-      showPicker(response.items, passwordFields[0]);
+      showPicker(response.items, passwordFields[0], response.autofillToken);
     }
   }
 
   // ─── Fill credentials into the form ─────────────────────────────────────────
 
-  async function fillCredentials(itemMeta, passwordField) {
+  async function fillCredentials(itemMeta, passwordField, autofillToken) {
     // Request full plaintext from background (only the specific item the user chose)
     const response = await chrome.runtime.sendMessage({
       type: 'GET_ITEM_PLAINTEXT',
-      payload: { itemId: itemMeta.id },
+      payload: { itemId: itemMeta.id, autofillToken },
     });
 
     if (!response?.plaintext) return;
@@ -72,7 +99,7 @@
 
   // ─── Picker UI (multiple credentials) ────────────────────────────────────────
 
-  function showPicker(items, passwordField) {
+  function showPicker(items, passwordField, autofillToken) {
     removePicker(); // remove any existing picker
 
     const picker = document.createElement('div');
@@ -94,14 +121,16 @@
       option.innerHTML = `<strong>${escapeHtml(item.title || hostname)}</strong>
         <span class="byov-username">${escapeHtml(item.username || '')}</span>`;
 
-      option.addEventListener('click', async () => {
+      option.addEventListener('click', async (e) => {
+        if (!e.isTrusted) return;
         removePicker();
-        await fillCredentials(item, passwordField);
+        await fillCredentials(item, passwordField, autofillToken);
       });
       option.addEventListener('keydown', async (e) => {
+        if (!e.isTrusted) return;
         if (e.key === 'Enter' || e.key === ' ') {
           removePicker();
-          await fillCredentials(item, passwordField);
+          await fillCredentials(item, passwordField, autofillToken);
         }
       });
       picker.appendChild(option);
@@ -133,6 +162,11 @@
   function removePicker() {
     const el = document.getElementById('byov-picker');
     if (el) el.remove();
+  }
+
+  function removeInjectedIcons() {
+    document.querySelectorAll('[data-byov-icon]').forEach((el) => el.remove());
+    document.querySelectorAll('input[data-byov]').forEach((field) => field.removeAttribute('data-byov'));
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -238,6 +272,7 @@
   // ─── Auto-detect password fields and show BYOV icon ─────────────────────────
 
   function injectAutofillIcons() {
+    if (!autofillEnabled || !showAutofillIcon) return;
     const passwordFields = document.querySelectorAll('input[type="password"]:not([data-byov])');
     for (const field of passwordFields) {
       field.setAttribute('data-byov', 'true');
@@ -248,6 +283,7 @@
       icon.type = 'button';
       icon.setAttribute('aria-label', 'BYOV: Autofill password');
       icon.title = 'BYOV Autofill';
+      icon.dataset.byovIcon = 'true';
       icon.innerHTML = '🔐';
       Object.assign(icon.style, {
         position: 'absolute',
@@ -263,6 +299,7 @@
         lineHeight: '1',
       });
       icon.addEventListener('click', (e) => {
+        if (!e.isTrusted) return;
         e.preventDefault();
         e.stopPropagation();
         triggerAutofill();
@@ -284,16 +321,17 @@
   }
 
   // Run icon injection once DOM is ready and observe for dynamic forms
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectAutofillIcons);
-  } else {
-    injectAutofillIcons();
-  }
-
   // Re-check for new password fields added dynamically
   const observer = new MutationObserver(() => injectAutofillIcons());
   observer.observe(document.body || document.documentElement, {
     childList: true,
     subtree: true,
   });
+
+  async function loadSettings() {
+    const res = await chrome.storage.local.get('byov_general_settings').catch(() => ({}));
+    const settings = res.byov_general_settings || {};
+    autofillEnabled = settings.autofillEnabled !== false;
+    showAutofillIcon = settings.autofillIcon !== false;
+  }
 })();

@@ -13,6 +13,7 @@ import {
   changeMasterPassword,
   exportVault,
   importVault,
+  verifyMasterPassword,
   VAULT_FORMAT,
 } from '../src/crypto/vault.js';
 
@@ -88,6 +89,8 @@ describe('addItem / decryptVaultItem', () => {
     expect(enc.encrypted_payload).toBeTruthy();
     expect(enc.nonce).toBeTruthy();
     expect(enc.item_version).toBe(1);
+    expect(enc.created_at).toBeTruthy();
+    expect(enc.updated_at).toBeTruthy();
   });
 
   test('round-trips the item data', async () => {
@@ -116,6 +119,7 @@ describe('updateItem', () => {
     expect(enc.item_version).toBe(1);
     const updated = await updateItem(enc, { title: 'A', password: 'new' });
     expect(updated.item_version).toBe(2);
+    expect(updated.created_at).toBe(enc.created_at);
   });
 
   test('decrypts to new data after update', async () => {
@@ -151,6 +155,16 @@ describe('changeMasterPassword', () => {
     expect(plain.password).toBe('123');
 
     lockVault();
+  });
+});
+
+describe('verifyMasterPassword', () => {
+  test('returns true for the correct password and false for the wrong one', async () => {
+    const header = await createVault('verify-password');
+    lockVault();
+
+    await expect(verifyMasterPassword('verify-password', header)).resolves.toBe(true);
+    await expect(verifyMasterPassword('wrong-password', header)).resolves.toBe(false);
   });
 });
 

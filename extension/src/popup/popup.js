@@ -12,13 +12,59 @@ import './popup.css';
 let _currentItems    = [];   // array of EncryptedItem (from background)
 let _activeFilter    = 'all';
 let _searchQuery     = '';
+let _sortMode        = 'updated_desc';
 let _editingItemId   = null; // null = new item, string = editing existing
+
+const STORAGE_SETTINGS_KEY = 'byov_storage_settings';
+const PROVIDER_HEALTH_KEY = 'byov_provider_health';
+const USER_IDS_KEY = 'byov_user_ids';
+const CLOUD_AUTH_STORAGE_TYPES = new Set(['firebase', 'supabase']);
+
+const STORAGE_PROVIDERS = {
+  local: {
+    label: 'Local Device',
+    isReady: () => true,
+  },
+  firebase: {
+    label: 'Firebase',
+    isReady: (config = {}) => Boolean(
+      config.apiKey && config.authDomain && config.projectId && config.appId,
+    ),
+  },
+  supabase: {
+    label: 'Supabase Sync',
+    isReady: (config = {}) => Boolean(config.supabaseUrl && config.supabaseAnonKey),
+  },
+  onedrive: {
+    label: 'OneDrive',
+    isReady: (config = {}) => Boolean(config.clientId),
+  },
+  googledrive: {
+    label: 'Google Drive',
+    isReady: (config = {}) => Boolean(config.clientId),
+  },
+  dropbox: {
+    label: 'Dropbox',
+    isReady: (config = {}) => Boolean(config.clientId),
+  },
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function $(id) { return document.getElementById(id); }
 
 function showScreen(name) {
+  // Reset any in-flight button loading state — prevents the stale "Working…"
+  // text from sticking on a button when navigating mid-operation.
+  document.querySelectorAll('button[data-orig-text], button.loading').forEach((btn) => {
+    if (btn.dataset.origText) {
+      btn.textContent = btn.dataset.origText;
+      delete btn.dataset.origText;
+    }
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  });
+
   document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
   const screen = $(`screen-${name}`);
   if (screen) screen.classList.add('active');
@@ -49,12 +95,15 @@ function setLoading(btnId, loading) {
   const btn = $(btnId);
   if (!btn) return;
   if (loading) {
-    btn.dataset.origText = btn.textContent;
+    if (!btn.dataset.origText) btn.dataset.origText = btn.textContent;
     btn.innerHTML = '<span class="spinner"></span> Working…';
     btn.disabled = true;
+    btn.classList.add('loading');
   } else {
-    btn.textContent = btn.dataset.origText || btn.textContent;
+    if (btn.dataset.origText) btn.textContent = btn.dataset.origText;
+    delete btn.dataset.origText;
     btn.disabled = false;
+    btn.classList.remove('loading');
   }
 }
 
@@ -117,9 +166,15 @@ function itemTypeIcon(type) {
   return icons[type] || '🔐';
 }
 
+function itemTypeLabel(type) {
+  const labels = { login: 'Login', note: 'Secure Note', card: 'Credit Card', identity: 'Identity' };
+  return labels[type] || 'Item';
+}
+
 // ─── Initialisation ───────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
+  await populateStorageOptions();
   setupAuthScreen();
   setupVaultScreen();
   setupItemScreen();
@@ -147,6 +202,8 @@ function setupAuthScreen() {
       const tab = btn.dataset.tab;
       const content = document.querySelector(`.tab-content[data-tab="${tab}"]`);
       if (content) content.classList.add('active');
+      updateCloudAuthPanel('unlock');
+      updateCloudAuthPanel('create');
     });
   });
 
@@ -166,6 +223,14 @@ function setupAuthScreen() {
     createPw.addEventListener('input', () => updateStrengthMeter(createPw.value));
   }
 
+  $('unlock-storage')?.addEventListener('change', () => updateCloudAuthPanel('unlock'));
+  $('create-storage')?.addEventListener('change', () => updateCloudAuthPanel('create'));
+
+  $('btn-unlock-cloud-sign-in')?.addEventListener('click', () => handleCloudAuthAction('unlock', 'CLOUD_SIGN_IN'));
+  $('btn-unlock-cloud-sign-up')?.addEventListener('click', () => handleCloudAuthAction('unlock', 'CLOUD_SIGN_UP'));
+  $('btn-create-cloud-sign-in')?.addEventListener('click', () => handleCloudAuthAction('create', 'CLOUD_SIGN_IN'));
+  $('btn-create-cloud-sign-up')?.addEventListener('click', () => handleCloudAuthAction('create', 'CLOUD_SIGN_UP'));
+
   // Unlock form
   $('form-unlock')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -177,14 +242,17 @@ function setupAuthScreen() {
 
     setLoading('btn-unlock', true);
     try {
-      const userId = await getStoredUserId();
+      const userId = await getStoredUserId(storageType);
+      const storageConfig = await getStorageConfig(storageType);
       const res = await sendMsg('UNLOCK_VAULT', {
         masterPassword,
         storageType,
-        storageConfig: getStorageConfig(storageType),
+        storageConfig,
         userId,
       });
       if (res?.success) {
+        await storeUserId(storageType, res.userId);
+        await markProviderVerified(storageType);
         await loadAndShowVault();
       } else {
         showError('unlock-error', res?.error || 'Wrong password or no vault found.');
@@ -213,13 +281,18 @@ function setupAuthScreen() {
 
     setLoading('btn-create', true);
     try {
+      clearMsg('create-cloud-status');
+      const storageConfig = await getStorageConfig(storageType);
+      const userId = await getStoredUserId(storageType);
       const res = await sendMsg('CREATE_VAULT', {
         masterPassword,
         storageType,
-        storageConfig: getStorageConfig(storageType),
+        storageConfig,
+        userId,
       });
       if (res?.success) {
-        await storeUserId(res.userId);
+        await storeUserId(storageType, res.userId);
+        await markProviderVerified(storageType);
         await loadAndShowVault();
       } else {
         showError('create-error', res?.error || 'Failed to create vault.');
@@ -230,15 +303,86 @@ function setupAuthScreen() {
       setLoading('btn-create', false);
     }
   });
+
+  updateCloudAuthPanel('unlock');
+  updateCloudAuthPanel('create');
+}
+
+function updateCloudAuthPanel(mode) {
+  const storageType = $(`${mode}-storage`)?.value || 'local';
+  const panel = $(`${mode}-cloud-auth`);
+  if (!panel) return;
+
+  panel.classList.toggle('hidden', !CLOUD_AUTH_STORAGE_TYPES.has(storageType));
+  clearMsg(`${mode}-cloud-status`);
+}
+
+async function handleCloudAuthAction(mode, actionType) {
+  const storageType = $(`${mode}-storage`)?.value || 'local';
+  const statusId = `${mode}-cloud-status`;
+  clearMsg(statusId);
+
+  if (!CLOUD_AUTH_STORAGE_TYPES.has(storageType)) {
+    showError(statusId, 'This storage provider does not use email/password cloud sign-in.');
+    return;
+  }
+
+  const email = $(`${mode}-cloud-email`)?.value?.trim() || '';
+  const password = $(`${mode}-cloud-password`)?.value || '';
+  if (!email || !password) {
+    showError(statusId, 'Enter your cloud account email and password first.');
+    return;
+  }
+
+  const buttonId = actionType === 'CLOUD_SIGN_IN'
+    ? `btn-${mode}-cloud-sign-in`
+    : `btn-${mode}-cloud-sign-up`;
+
+  setLoading(buttonId, true);
+  try {
+    const storageConfig = await getStorageConfig(storageType);
+    const res = await sendMsg(actionType, { storageType, storageConfig, email, password });
+    if (!res?.success) {
+      showError(statusId, res?.error || 'Cloud sign-in failed.');
+      return;
+    }
+
+    if (res.userId) {
+      await storeUserId(storageType, res.userId);
+    }
+
+    const authStatus = await sendMsg('GET_PROVIDER_AUTH_STATUS', { storageType, storageConfig });
+    if (authStatus?.success && authStatus.userId) {
+      await storeUserId(storageType, authStatus.userId);
+    }
+
+    const message = actionType === 'CLOUD_SIGN_UP'
+      ? (res.requiresConfirmation
+        ? 'Cloud account created. Confirm the email if your provider requires it, then sign in.'
+        : 'Cloud account created and ready.')
+      : `${STORAGE_PROVIDERS[storageType]?.label || 'Cloud'} account connected as ${authStatus?.userEmail || res.userEmail || email}.`;
+
+    showSuccess(statusId, message);
+  } catch (err) {
+    showError(statusId, err.message || 'Cloud authentication failed.');
+  } finally {
+    setLoading(buttonId, false);
+  }
 }
 
 // ─── Vault Screen ─────────────────────────────────────────────────────────────
 
 function setupVaultScreen() {
   $('btn-lock')?.addEventListener('click', async () => {
-    await sendMsg('LOCK_VAULT');
-    _currentItems = [];
-    showScreen('auth');
+    try {
+      await sendMsg('LOCK_VAULT');
+    } catch (err) {
+      console.warn('[BYOV] LOCK_VAULT failed:', err.message);
+    } finally {
+      _currentItems = [];
+      _editingItemId = null;
+      showScreen('auth');
+    }
   });
 
   $('btn-sync')?.addEventListener('click', async () => {
@@ -259,20 +403,21 @@ function setupVaultScreen() {
     chrome.runtime.openOptionsPage();
   });
 
-  $('btn-add')?.addEventListener('click', () => openItemEditor(null));
+  $('btn-add')?.addEventListener('click', () => openItemEditor(null, getDefaultItemTypeForNewItem()));
 
   $('vault-search')?.addEventListener('input', (e) => {
     _searchQuery = e.target.value.toLowerCase();
     renderItems();
   });
 
-  document.querySelectorAll('.filter-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      _activeFilter = btn.dataset.type;
-      renderItems();
-    });
+  $('vault-filter')?.addEventListener('change', (e) => {
+    _activeFilter = e.target.value;
+    renderItems();
+  });
+
+  $('vault-sort')?.addEventListener('change', (e) => {
+    _sortMode = e.target.value;
+    renderItems();
   });
 }
 
@@ -287,7 +432,8 @@ async function loadAndShowVault() {
 
 async function refreshItemList() {
   const res = await sendMsg('GET_ITEMS');
-  _currentItems = res?.items || [];
+  const items = res?.items || [];
+  _currentItems = await Promise.all(items.map((item) => hydrateItemPreview(item)));
   renderItems();
 }
 
@@ -300,22 +446,23 @@ function renderItems() {
   const filtered = _currentItems.filter((item) => {
     if (_activeFilter !== 'all' && item.type !== _activeFilter) return false;
     if (_searchQuery) {
-      const haystack = `${item.type} ${item.id}`.toLowerCase();
+      const haystack = item._searchText || `${item.type} ${item.id}`.toLowerCase();
       return haystack.includes(_searchQuery);
     }
     return true;
   });
+  const sorted = sortItems(filtered);
 
   // Remove old items (keep empty-state)
   container.querySelectorAll('.vault-item').forEach((el) => el.remove());
 
-  if (filtered.length === 0) {
+  if (sorted.length === 0) {
     if (emptyState) emptyState.classList.remove('hidden');
     return;
   }
   if (emptyState) emptyState.classList.add('hidden');
 
-  for (const item of filtered) {
+  for (const item of sorted) {
     const el = createItemElement(item);
     container.appendChild(el);
   }
@@ -326,24 +473,32 @@ function createItemElement(item) {
   div.className = 'vault-item';
   div.setAttribute('role', 'listitem');
   div.dataset.id = item.id;
+  div.tabIndex = 0;
 
   const icon = document.createElement('div');
   icon.className = 'item-icon';
   icon.textContent = itemTypeIcon(item.type);
+  icon.title = friendlyItemType(item.type);
+  icon.setAttribute('aria-label', friendlyItemType(item.type));
 
   const info = document.createElement('div');
   info.className = 'item-info';
 
   const title = document.createElement('div');
   title.className = 'item-title';
-  title.textContent = item._plainTitle || `(${item.type})`;
+  title.textContent = item._previewTitle || `(${item.type})`;
 
   const subtitle = document.createElement('div');
   subtitle.className = 'item-subtitle';
-  subtitle.textContent = item._plainSubtitle || formatDate(item.updated_at);
+  subtitle.textContent = item._previewSubtitle || '';
 
   info.appendChild(title);
   info.appendChild(subtitle);
+
+  const meta = document.createElement('div');
+  meta.className = 'item-hover-meta';
+  meta.textContent = item._previewMeta || buildMetadataFallback(item);
+  info.appendChild(meta);
 
   const copyBtn = document.createElement('button');
   copyBtn.className = 'item-copy-btn';
@@ -360,22 +515,23 @@ function createItemElement(item) {
   if (item.type === 'login') div.appendChild(copyBtn);
 
   div.addEventListener('click', () => openItemEditor(item));
-
-  // Decrypt title/subtitle lazily for display
-  loadItemPreview(item, title, subtitle);
+  div.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openItemEditor(item);
+    }
+  });
 
   return div;
 }
 
-async function loadItemPreview(item, titleEl, subtitleEl) {
+async function hydrateItemPreview(item) {
   try {
     const res = await sendMsg('GET_ITEM_PLAINTEXT', { itemId: item.id });
-    if (!res?.plaintext) return;
-    const plain = res.plaintext;
-    titleEl.textContent = plain.title || plain.note_title || `(${item.type})`;
-    subtitleEl.textContent = plain.username || plain.email || formatDate(item.updated_at);
+    if (!res?.plaintext) return applyPreviewData(item, null);
+    return applyPreviewData(item, res.plaintext);
   } catch {
-    // Non-fatal; leave placeholder text
+    return applyPreviewData(item, null);
   }
 }
 
@@ -386,8 +542,11 @@ async function copyItemPassword(itemId) {
     const pwd = res.plaintext.password || '';
     await navigator.clipboard.writeText(pwd);
     updateSyncStatus('Password copied to clipboard ✓');
-    // Clear clipboard after 30 seconds
-    setTimeout(() => navigator.clipboard.writeText(''), 30000);
+    const seconds = await getClipboardClearSeconds();
+    if (seconds > 0) {
+      // Schedule clear in background (popup may close before setTimeout fires)
+      await sendMsg('SCHEDULE_CLIP_CLEAR', { seconds });
+    }
   } catch {
     updateSyncStatus('Could not copy password.');
   }
@@ -412,10 +571,11 @@ function setupItemScreen() {
   });
 
   $('item-type-select')?.addEventListener('change', (e) => {
-    switchItemTypeFields(e.target.value);
+    const t = e.target.value;
+    switchItemTypeFields(t);
     $('item-screen-title').textContent = _editingItemId
-      ? `Edit ${capitalize(e.target.value)}`
-      : `Add ${capitalize(e.target.value)}`;
+      ? `Edit ${itemTypeLabel(t)}`
+      : `Add ${itemTypeLabel(t)}`;
   });
 
   $('form-item')?.addEventListener('submit', async (e) => {
@@ -428,10 +588,10 @@ function setupItemScreen() {
     try {
       let res;
       if (_editingItemId) {
-        // Find existing encrypted item
-        const existing = _currentItems.find((i) => i.id === _editingItemId);
-        if (!existing) throw new Error('Item not found');
-        res = await sendMsg('UPDATE_ITEM', { existingItem: existing, updatedData: itemData });
+        // Send only the canonical itemId — background looks up the encrypted
+        // payload itself. Avoids races where popup state drifts from the
+        // background after MV3 worker eviction.
+        res = await sendMsg('UPDATE_ITEM', { itemId: _editingItemId, updatedData: itemData });
       } else {
         res = await sendMsg('ADD_ITEM', { itemData, itemType });
       }
@@ -467,13 +627,13 @@ function setupItemScreen() {
   });
 }
 
-function openItemEditor(item) {
+function openItemEditor(item, preferredType = getDefaultItemTypeForNewItem()) {
   clearMsg('item-error');
   const typeSelect = $('item-type-select');
 
   if (item) {
     _editingItemId = item.id;
-    $('item-screen-title').textContent = `Edit ${capitalize(item.type)}`;
+    $('item-screen-title').textContent = `Edit ${itemTypeLabel(item.type)}`;
     if (typeSelect) typeSelect.value = item.type;
     switchItemTypeFields(item.type);
 
@@ -485,9 +645,9 @@ function openItemEditor(item) {
     $('btn-delete-item').classList.remove('hidden');
   } else {
     _editingItemId = null;
-    $('item-screen-title').textContent = 'Add Login';
-    if (typeSelect) typeSelect.value = 'login';
-    switchItemTypeFields('login');
+    $('item-screen-title').textContent = `Add ${itemTypeLabel(preferredType)}`;
+    if (typeSelect) typeSelect.value = preferredType;
+    switchItemTypeFields(preferredType);
     clearItemForm();
     $('btn-delete-item').classList.add('hidden');
   }
@@ -680,14 +840,17 @@ function setupImportExport() {
       try {
         const jsonString = e.target.result;
         const storageType = $('unlock-storage')?.value || 'local';
+        const storageConfig = await getStorageConfig(storageType);
         const res = await sendMsg('IMPORT_VAULT', {
           jsonString,
           masterPassword: password,
           storageType,
-          storageConfig: getStorageConfig(storageType),
+          storageConfig,
+          userId: await getStoredUserId(storageType),
         });
         if (res?.success) {
-          await storeUserId(res.userId);
+          await storeUserId(storageType, res.userId);
+          await markProviderVerified(storageType);
           showSuccess('import-status', `Imported ${res.itemCount} items successfully.`);
           closeModal('modal-import-export');
           await loadAndShowVault();
@@ -706,18 +869,228 @@ function setupImportExport() {
 
 // ─── Storage Config ───────────────────────────────────────────────────────────
 
-function getStorageConfig(storageType) {
-  // Pull storage provider configs from extension storage settings
-  // In a full implementation these would be set in the options page
-  const configs = {};
-  return configs[storageType] || {};
+async function getStorageConfig(storageType) {
+  const settings = await getStorageSettings();
+  return settings[storageType] || {};
 }
 
-async function getStoredUserId() {
-  const res = await chrome.storage.local.get('byov_user_id');
-  return res.byov_user_id || null;
+async function getClipboardClearSeconds() {
+  const res = await chrome.storage.local.get('byov_general_settings');
+  const settings = res.byov_general_settings || {};
+  return Number.isFinite(settings.clipboardClear) ? settings.clipboardClear : 30;
 }
 
-async function storeUserId(userId) {
-  await chrome.storage.local.set({ byov_user_id: userId });
+async function getStorageSettings() {
+  const res = await chrome.storage.local.get(STORAGE_SETTINGS_KEY);
+  return res[STORAGE_SETTINGS_KEY] || {};
+}
+
+async function getProviderHealth() {
+  const res = await chrome.storage.local.get(PROVIDER_HEALTH_KEY);
+  return res[PROVIDER_HEALTH_KEY] || { local: { working: true } };
+}
+
+async function markProviderVerified(storageType) {
+  const health = await getProviderHealth();
+  health[storageType] = {
+    ...(health[storageType] || {}),
+    working: true,
+    lastSuccessAt: new Date().toISOString(),
+  };
+  await chrome.storage.local.set({ [PROVIDER_HEALTH_KEY]: health });
+}
+
+async function populateStorageOptions() {
+  const settings = await getStorageSettings();
+  const health = await getProviderHealth();
+  const providers = getAvailableProviders(settings, health);
+
+  populateStorageSelect($('unlock-storage'), providers, settings.storageType || 'local');
+  populateStorageSelect($('create-storage'), providers, 'local');
+}
+
+function getAvailableProviders(settings, health) {
+  const providers = [{ value: 'local', label: STORAGE_PROVIDERS.local.label }];
+
+  for (const [type, provider] of Object.entries(STORAGE_PROVIDERS)) {
+    if (type === 'local') continue;
+    const configured = provider.isReady(settings[type] || {});
+    const tested = health[type]?.working === true;
+    if (configured && (tested || type === settings.storageType)) {
+      providers.push({ value: type, label: provider.label });
+    }
+  }
+
+  return providers;
+}
+
+function populateStorageSelect(select, providers, preferredValue) {
+  if (!select) return;
+  select.innerHTML = '';
+  for (const provider of providers) {
+    const option = document.createElement('option');
+    option.value = provider.value;
+    option.textContent = provider.label;
+    select.appendChild(option);
+  }
+  select.value = providers.some((provider) => provider.value === preferredValue)
+    ? preferredValue
+    : 'local';
+}
+
+function getDefaultItemTypeForNewItem() {
+  return _activeFilter !== 'all' ? _activeFilter : 'login';
+}
+
+function sortItems(items) {
+  const sorted = [...items];
+  sorted.sort((a, b) => {
+    switch (_sortMode) {
+      case 'created_desc':
+        return getCreatedTime(b) - getCreatedTime(a);
+      case 'title_asc':
+        return compareText(a._previewTitle, b._previewTitle);
+      case 'title_desc':
+        return compareText(b._previewTitle, a._previewTitle);
+      case 'type_asc':
+        return compareText(friendlyItemType(a.type), friendlyItemType(b.type))
+          || compareText(a._previewTitle, b._previewTitle);
+      case 'updated_desc':
+      default:
+        return getUpdatedTime(b) - getUpdatedTime(a);
+    }
+  });
+  return sorted;
+}
+
+function compareText(a = '', b = '') {
+  return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' });
+}
+
+function getUpdatedTime(item) {
+  return new Date(item.updated_at || 0).getTime();
+}
+
+function getCreatedTime(item) {
+  return new Date(item.created_at || item.updated_at || 0).getTime();
+}
+
+function applyPreviewData(item, plain) {
+  const preview = buildItemPreview(item, plain);
+  return {
+    ...item,
+    _previewTitle: preview.title,
+    _previewSubtitle: preview.subtitle,
+    _previewMeta: preview.meta,
+    _searchText: preview.searchText,
+  };
+}
+
+function buildItemPreview(item, plain) {
+  const updated = item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Unknown';
+  const created = item.created_at ? new Date(item.created_at).toLocaleString() : 'Not tracked yet';
+  const metaParts = [
+    `Last modified: ${updated}`,
+    `Created: ${created}`,
+    `Version: ${item.item_version || 1}`,
+  ];
+
+  if (item.type === 'login') {
+    const host = safeHostname(plain?.url);
+    const title = plain?.title || host || 'Untitled Login';
+    const subtitle = plain?.username || host || 'No username saved';
+    if (host) metaParts.push(`Site: ${host}`);
+    if (plain?.username) metaParts.push(`Username: ${plain.username}`);
+    return {
+      title,
+      subtitle,
+      meta: metaParts.join(' • '),
+      searchText: `${title} ${subtitle} ${host || ''}`.toLowerCase(),
+    };
+  }
+
+  if (item.type === 'note') {
+    const title = plain?.note_title || 'Untitled Note';
+    const subtitle = truncateText(plain?.note_body || plain?.notes || 'Secure note', 48);
+    return {
+      title,
+      subtitle,
+      meta: metaParts.join(' • '),
+      searchText: `${title} ${plain?.note_body || ''} ${plain?.notes || ''}`.toLowerCase(),
+    };
+  }
+
+  if (item.type === 'card') {
+    const digits = String(plain?.card_number || '').replace(/\D/g, '');
+    const ending = digits ? digits.slice(-5) : 'unknown';
+    const title = `Card ending in ${ending}`;
+    const subtitle = plain?.card_name || plain?.card_expiry || 'Payment card';
+    if (plain?.card_expiry) metaParts.push(`Expiry: ${plain.card_expiry}`);
+    return {
+      title,
+      subtitle,
+      meta: metaParts.join(' • '),
+      searchText: `${title} ${subtitle}`.toLowerCase(),
+    };
+  }
+
+  const fullName = [plain?.first_name, plain?.last_name].filter(Boolean).join(' ').trim();
+  const title = fullName || plain?.email || 'Identity';
+  const subtitle = plain?.email || plain?.phone || 'Identity record';
+  if (plain?.phone) metaParts.push(`Phone: ${plain.phone}`);
+  return {
+    title,
+    subtitle,
+    meta: metaParts.join(' • '),
+    searchText: `${title} ${subtitle}`.toLowerCase(),
+  };
+}
+
+function truncateText(value, maxLength) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text;
+}
+
+function safeHostname(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, '');
+  } catch {
+    return '';
+  }
+}
+
+function friendlyItemType(type) {
+  return itemTypeLabel(type);
+}
+
+function buildMetadataFallback(item) {
+  const updated = item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Unknown';
+  return `Last modified: ${updated}`;
+}
+
+async function getStoredUserIds() {
+  const res = await chrome.storage.local.get([USER_IDS_KEY, 'byov_user_id']);
+  const userIds = res[USER_IDS_KEY] || {};
+  if (!userIds.local && res.byov_user_id) {
+    userIds.local = res.byov_user_id;
+  }
+  return userIds;
+}
+
+async function getStoredUserId(storageType = 'local') {
+  const userIds = await getStoredUserIds();
+  return userIds[storageType] || null;
+}
+
+async function storeUserId(storageType, userId) {
+  if (!storageType || !userId) return;
+  const userIds = await getStoredUserIds();
+  userIds[storageType] = userId;
+
+  const payload = { [USER_IDS_KEY]: userIds };
+  if (storageType === 'local') {
+    payload.byov_user_id = userId;
+  }
+  await chrome.storage.local.set(payload);
 }

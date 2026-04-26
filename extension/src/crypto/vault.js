@@ -54,6 +54,41 @@ export function isUnlocked() {
   return _session !== null;
 }
 
+/**
+ * Returns a snapshot of the current session for persistence to
+ * chrome.storage.session. The vault key + KEK are returned as Uint8Array
+ * references — caller is responsible for serialising (e.g. base64) and
+ * for ensuring the storage layer is in-memory only.
+ *
+ * @returns {{ vaultKey: Uint8Array, kek: Uint8Array, deviceId: string }|null}
+ */
+export function getSessionSnapshot() {
+  if (!_session) return null;
+  return {
+    vaultKey: _session.vaultKey,
+    kek: _session.kek,
+    deviceId: _session.deviceId,
+  };
+}
+
+/**
+ * Rehydrates the in-memory session from a snapshot produced by
+ * getSessionSnapshot(). Used by the MV3 service worker to restore state
+ * after the worker is evicted between messages.
+ *
+ * @param {{ vaultKey: Uint8Array, kek: Uint8Array, deviceId: string }} snapshot
+ */
+export function restoreSession(snapshot) {
+  if (!snapshot?.vaultKey || !snapshot?.kek) {
+    throw new Error('restoreSession: snapshot missing vaultKey or kek');
+  }
+  _session = {
+    vaultKey: snapshot.vaultKey,
+    kek: snapshot.kek,
+    deviceId: snapshot.deviceId,
+  };
+}
+
 /** Clears all in-memory key material – effectively locks the vault. */
 export function lockVault() {
   if (_session) {
@@ -128,6 +163,33 @@ export async function unlockVault(masterPassword, vaultHeader) {
   };
 }
 
+/**
+ * Verifies that a master password can unwrap the vault key for the supplied
+ * header without mutating the current in-memory session.
+ *
+ * @param {string} masterPassword
+ * @param {object} vaultHeader
+ * @returns {Promise<boolean>}
+ */
+export async function verifyMasterPassword(masterPassword, vaultHeader) {
+  const salt = base64ToBuf(vaultHeader.salt);
+  const kek = await deriveMasterKey(masterPassword, salt);
+
+  try {
+    const vaultKey = await unwrapVaultKey(
+      vaultHeader.wrapped_vault_key,
+      vaultHeader.wrapped_vault_nonce,
+      kek,
+    );
+    zeroMemory(vaultKey);
+    zeroMemory(kek);
+    return true;
+  } catch {
+    zeroMemory(kek);
+    return false;
+  }
+}
+
 // ─── Item CRUD ────────────────────────────────────────────────────────────────
 
 /**
@@ -140,13 +202,15 @@ export async function unlockVault(masterPassword, vaultHeader) {
 export async function addItem(itemData, itemType = 'login') {
   assertUnlocked();
   const { ciphertext, nonce } = await encryptItem(itemData, _session.vaultKey);
+  const now = new Date().toISOString();
   return {
     id: uuidv4(),
     type: itemType,
     encrypted_payload: ciphertext,
     nonce,
     item_version: 1,
-    updated_at: new Date().toISOString(),
+    created_at: now,
+    updated_at: now,
     device_id: _session.deviceId,
   };
 }
@@ -178,6 +242,7 @@ export async function updateItem(existingEncryptedItem, updatedData) {
     encrypted_payload: ciphertext,
     nonce,
     item_version: (existingEncryptedItem.item_version || 1) + 1,
+    created_at: existingEncryptedItem.created_at || existingEncryptedItem.updated_at,
     updated_at: new Date().toISOString(),
     device_id: _session.deviceId,
   };
